@@ -1,6 +1,5 @@
 from django.db import models
 
-# Create your models here.
 import uuid
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
@@ -11,7 +10,6 @@ class TimeStampedMixin(models.Model):
     modified = models.DateTimeField(auto_now=True)
 
     class Meta:
-        # Этот параметр указывает Django, что этот класс не является представлением таблицы
         abstract = True
 
 
@@ -25,20 +23,20 @@ class FilmworkType(models.TextChoices):
     MOVIE = 'movie', _('movie')
     TV_SHOW = 'tv_show', _('tv_show')
 
+class PersonFilmworkRole(models.TextChoices):
+    ACTOR = 'actor', _('actor')
+    DIRECTOR = 'director', _('director')
+    SCENARIST = 'scenarist', _('scenarist')
+
 class Genre(UUIDMixin, TimeStampedMixin):
-    # Типичная модель в Django использует число в качестве id. В таких ситуациях поле не описывается в модели.
-    # Первым аргументом обычно идёт человекочитаемое название поля
     name = models.CharField(_('name'), max_length=255)
-    # blank=True делает поле необязательным для заполнения.
     description = models.TextField(_('description'), blank=True)
 
     def __str__(self):
         return self.name
 
     class Meta:
-        # Ваши таблицы находятся в нестандартной схеме. Это нужно указать в классе модели
         db_table = "content\".\"genre"
-        # Следующие два поля отвечают за название модели в интерфейсе
         verbose_name = 'Жанр'
         verbose_name_plural = 'Жанры'
 
@@ -60,51 +58,37 @@ class Person(UUIDMixin, TimeStampedMixin):
         return self.full_name
 
     class Meta:
-        # Ваши таблицы находятся в нестандартной схеме. Это нужно указать в классе модели
         db_table = "content\".\"person"
-        # Следующие два поля отвечают за название модели в интерфейсе
         verbose_name = 'Персона'
         verbose_name_plural = 'Персоны'
 
 class PersonFilmwork(UUIDMixin):
     film_work = models.ForeignKey('Filmwork', on_delete=models.CASCADE)
     person = models.ForeignKey('Person', on_delete=models.CASCADE)
-    role = models.TextField(_('role'), null=True)
+    role = models.TextField(_('role'), max_length=9, choices=PersonFilmworkRole.choices, default=PersonFilmworkRole.ACTOR)
     created = models.DateTimeField(auto_now_add=True)
     constraints = [
         models.UniqueConstraint(fields=['film_work_id', 'person_id', 'role'], name='film_work_person_idx'),
     ]
 
     class Meta:
-        # Ваши таблицы находятся в нестандартной схеме. Это нужно указать в классе модели
         db_table = "content\".\"person_film_work"
 
 class Filmwork(UUIDMixin, TimeStampedMixin):
-    # Типичная модель в Django использует число в качестве id. В таких ситуациях поле не описывается в модели.
-    # Первым аргументом обычно идёт человекочитаемое название поля
-
     type = models.TextField(_('type'), max_length=7, choices=FilmworkType.choices, default=FilmworkType.MOVIE)
-
-    # blank=True делает поле необязательным для заполнения.
     title = models.TextField(_('title'), blank=True)
     creation_date = models.DateField(_('creation_date'))
-    rating = models.FloatField(_('rating'), blank=True,
-                               validators=[MinValueValidator(0),
-                                           MaxValueValidator(100)])
+    rating = models.FloatField(_('rating'), blank=True, validators=[MinValueValidator(0), MaxValueValidator(100)])
     genres = models.ManyToManyField(Genre, through='GenreFilmwork')
     persons = models.ManyToManyField(Person, through='PersonFilmwork')
     certificate = models.CharField(_('certificate'), max_length=512, blank=True)
-    # Параметр upload_to указывает, в какой подпапке будут храниться загружемые файлы.
-    # Базовая папка указана в файле настроек как MEDIA_ROOT
     file_path = models.FileField(_('file'), blank=True, null=True, upload_to='movies/')
 
     def __str__(self):
         return self.title
 
     class Meta:
-        # Ваши таблицы находятся в нестандартной схеме. Это нужно указать в классе модели
         db_table = "content\".\"film_work"
-        # Следующие два поля отвечают за название модели в интерфейсе
         verbose_name = 'Кинопроизведение'
         verbose_name_plural = 'Кинопроизведения'
 

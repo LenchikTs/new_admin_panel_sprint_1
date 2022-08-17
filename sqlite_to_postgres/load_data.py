@@ -1,5 +1,9 @@
+import logging
 import sqlite3
 from contextlib import contextmanager
+import os
+
+from dotenv import load_dotenv
 
 import psycopg2
 from psycopg2.extensions import connection as _connection
@@ -8,10 +12,11 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 
+load_dotenv()
+
 @dataclass
 class FilmWork:
     title: str
-    # certificate: str = field(default=None)
     file_path: str
     creation_date: str
     description: str = field(default='.')
@@ -24,7 +29,7 @@ class FilmWork:
 @dataclass
 class PersonFilmWork:
     role: str = field(default='actor')
-    created: datetime = field(default=datetime.now())
+    created_at: datetime = field(default=datetime.now())
     person_id: uuid.UUID = field(default_factory=uuid.uuid4)
     film_work_id: uuid.UUID = field(default_factory=uuid.uuid4)
     id: uuid.UUID = field(default_factory=uuid.uuid4)
@@ -32,8 +37,8 @@ class PersonFilmWork:
 @dataclass
 class Person:
     full_name: str
-    created: datetime = field(default=datetime.now())
-    modified: datetime = field(default=datetime.now())
+    created_at: datetime = field(default=datetime.now())
+    updated_at: datetime = field(default=datetime.now())
     id: uuid.UUID = field(default_factory=uuid.uuid4)
 
 @dataclass
@@ -46,7 +51,7 @@ class Genre:
 
 @dataclass
 class GenreFilmWork:
-    created: datetime = field(default=datetime.now())
+    created_at: datetime = field(default=datetime.now())
     genre_id: uuid.UUID = field(default_factory=uuid.uuid4)
     film_work_id: uuid.UUID = field(default_factory=uuid.uuid4)
     id: uuid.UUID = field(default_factory=uuid.uuid4)
@@ -62,8 +67,8 @@ class PostgresSaver:
                     "INSERT INTO film_work (id, title, description, creation_date, rating, type, created,"
                     "modified, certificate, file_path) VALUES ('{id}', '{title}', '{description}', NULL,{rating},"
                     "'{type}', NOW(), NOW(), NULL, NULL) ON CONFLICT (id) DO NOTHING;".format(
-                        id=movies_data.id, title=movies_data.title.replace('\'', '\\\''), type=movies_data.type,
-                        description=movies_data.description.replace('\'', '\\\''), rating=movies_data.rating,
+                        id=movies_data.id, title=movies_data.title.replace('\'', '&#39;'), type=movies_data.type,
+                        description=movies_data.description.replace('\'', '&#39;'), rating=movies_data.rating,
                     ))
 
     def save_persons_data(self, data):
@@ -74,7 +79,7 @@ class PostgresSaver:
             curs.execute(
                         "INSERT INTO person (id, full_name, created, modified) "
                         "VALUES ('{id}', '{full_name}', NOW(), NOW()) ON CONFLICT (id) DO NOTHING;".format(
-                            id=persons_data.id, full_name=persons_data.full_name.replace('\'', '\\\''), ))
+                            id=persons_data.id, full_name=persons_data.full_name.replace('\'', '&#39;'), ))
             if str_num % 3000 == 0 or str_num == len(data):
                 curs.execute("COMMIT;")
 
@@ -112,88 +117,68 @@ class SQLiteLoader:
         self.connection = connection
         self.connection.row_factory = sqlite3.Row
 
-    def load_movies(self):
+    def load_movies(self, table_bd):
         film_class = []
         curs = self.connection.cursor()
-        curs.execute("SELECT * FROM film_work ;")
-        data = curs.fetchall()
-        for film in range(len(data)):
-            film_dict = dict(data[film])
-            info = FilmWork(title=film_dict['title'], file_path=film_dict['file_path'],
-                            description=film_dict['description'] if film_dict['description'] else '',
-                            rating=film_dict['rating'] if film_dict['rating'] else 0.0,
-                            type=film_dict['type'], id=film_dict['id'], creation_date=film_dict['creation_date'])
-            film_class.append(info)
+        curs.execute("SELECT * FROM {} ;".format(table_bd))
+        while True:
+            data = curs.fetchmany(3000)
+            if data:
+                for film in range(len(data)):
+                    universal_dict = dict(data[film])
+                    if table_bd == 'film_work':
+                        info = FilmWork(title=universal_dict['title'], file_path=universal_dict['file_path'],
+                                    description=universal_dict['description'] if universal_dict['description'] else '',
+                                    rating=universal_dict['rating'] if universal_dict['rating'] else 0.0,
+                                    type=universal_dict['type'], id=universal_dict['id'],
+                                    creation_date=universal_dict['creation_date'])
+                    elif table_bd == 'person':
+                        info = Person(**universal_dict)
+                    elif table_bd == 'person_film_work':
+                        info = PersonFilmWork(**universal_dict)
+                    elif table_bd == 'genre':
+                        info = Genre(name=universal_dict['name'], id=universal_dict['id'],
+                                description=universal_dict['description'] if universal_dict['description'] else '')
+                    elif table_bd == 'genre_film_work':
+                        info = GenreFilmWork(**universal_dict)
+                    film_class.append(info)
+            else:
+                break
         return film_class
 
-    def load_persons(self):
-        person_class = []
-        curs = self.connection.cursor()
-        curs.execute("SELECT * FROM person;")
-        data = curs.fetchall()
-        for person in range(len(data)):
-            person_dict = dict(data[person])
-            info = Person(full_name=person_dict['full_name'], id=person_dict['id'])
-            person_class.append(info)
-        return person_class
-
-    def load_person_film_works(self):
-        person_fm_class = []
-        curs = self.connection.cursor()
-        curs.execute("SELECT * FROM person_film_work;")
-        data = curs.fetchall()
-        for person_fm in range(len(data)):
-            person_fm_dict = dict(data[person_fm])
-            info = PersonFilmWork(role=person_fm_dict['role'], id=person_fm_dict['id'],
-                                  film_work_id=person_fm_dict['film_work_id'], person_id=person_fm_dict['person_id'])
-            person_fm_class.append(info)
-        return person_fm_class
-
-    def load_genres(self):
-        genre_class = []
-        curs = self.connection.cursor()
-        curs.execute("SELECT * FROM genre;")
-        data = curs.fetchall()
-        for genre in range(len(data)):
-            genre_dict = dict(data[genre])
-            info = Genre(name=genre_dict['name'], id=genre_dict['id'],
-                         description=genre_dict['description'] if genre_dict['description'] else '')
-            genre_class.append(info)
-        return genre_class
-
-    def load_genre_film_works(self):
-        genre_fm_class = []
-        curs = self.connection.cursor()
-        curs.execute("SELECT * FROM genre_film_work;")
-        data = curs.fetchall()
-        for genre_fm in range(len(data)):
-            genre_fm_dict = dict(data[genre_fm])
-            info = GenreFilmWork(film_work_id=genre_fm_dict['film_work_id'], id=genre_fm_dict['id'],
-                                 genre_id=genre_fm_dict['genre_id'])
-            genre_fm_class.append(info)
-        return genre_fm_class
-
-def load_from_sqlite(connection: sqlite3.Connection, pg_conn: _connection):
+def load_from_sqlite(connection: _connection, pg_conn: _connection):
     """Основной метод загрузки данных из SQLite в Postgres"""
     postgres_saver = PostgresSaver(pg_conn)
     sqlite_loader = SQLiteLoader(connection)
 
-    data_movies = sqlite_loader.load_movies()
+    data_movies = sqlite_loader.load_movies('film_work')
     postgres_saver.save_movies_data(data_movies)
-    data_persons = sqlite_loader.load_persons()
+    data_persons = sqlite_loader.load_movies('person')
     postgres_saver.save_persons_data(data_persons)
-    data_person_fms = sqlite_loader.load_person_film_works()
+    data_person_fms = sqlite_loader.load_movies('person_film_work')
     postgres_saver.save_person_fms_data(data_person_fms)
-    data_genres = sqlite_loader.load_genres()
+    data_genres = sqlite_loader.load_movies('genre')
     postgres_saver.save_genres_data(data_genres)
-    data_genre_fms = sqlite_loader.load_genre_film_works()
+    data_genre_fms = sqlite_loader.load_movies('genre_film_work')
     postgres_saver.save_genre_fms_data(data_genre_fms)
 
-#def save_film_work_to_postgres(conn: psycopg2.extensions.connection, film_work: FilmWork):
-    #genre, film_work, person, genre_film_work, person_film_work
+class SQLite:
+    def __init__(self, file_name: str):
+        self.file_name = file_name
+        self.connection = sqlite3.connect(self.file_name)
 
+    def __enter__(self):
+        logging.info("Calling __enter__")
+        return self.connection
+
+    def __exit__(self, error: Exception, value: object, traceback: object):
+        logging.info("Calling __exit__")
+        self.connection.commit()
+        self.connection.close()
 
 if __name__ == '__main__':
-    dsl = {'dbname': 'movies_db', 'user': 'app', 'password': '123qwe', 'host': '127.0.0.1', 'port': 5432}
-    with sqlite3.connect('db.sqlite') as sqlite_conn, psycopg2.connect(**dsl, cursor_factory=DictCursor) as pg_conn:
+    logging.basicConfig(level=logging.INFO)
+    dsl = {'dbname': os.environ.get('DB_NAME'), 'user': os.environ.get('DB_USER'),
+           'password': os.environ.get('DB_PASSWORD'), 'host': '127.0.0.1', 'port': 5432}
+    with SQLite(file_name='db.sqlite') as sqlite_conn, psycopg2.connect(**dsl, cursor_factory=DictCursor) as pg_conn:
         load_from_sqlite(sqlite_conn, pg_conn)
